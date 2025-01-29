@@ -2,13 +2,16 @@ using System;
 using UnityEngine;
 using System.Linq;
 using System.Collections.Generic;
-public class PlayerController : MonoBehaviour
+using System.Collections;
+public class PlayerController : MonoBehaviour, IDamageable
 {
     public Animator animator;
     public Rigidbody2D body;
     public CapsuleCollider2D groundCheck;
     public LayerMask groundLayer;
     public LayerMask enemyLayer;
+    public PlayerObjectSpawner objectSpawner;
+    public InputHandler inputHandler;
 
     [Header("ScriptableObject Stats")]
     public CharacterStats stats;
@@ -16,15 +19,27 @@ public class PlayerController : MonoBehaviour
     private float postureRegenTimer;
     public bool posturePause;
 
+    public bool invulnerable;
+
     [Header("Movement Variables")]
+    private bool throwKeyPressed;
+    public bool isAlive;
+    public float currentSpeed;
     public bool grounded;
     public float xInput;
     public bool jumpPressed;
     public bool IsMoving => Mathf.Abs(xInput) > 0;
-
+    public bool IsBlocking;
     public int numOfJumps = 1;
     public bool canMove = true;
-    [SerializeField] private float coyoteTime = 0.1f; // Time allowed after leaving the ground to still jump
+    public bool isRunning;
+    public bool canDash;
+    public bool isDashing;
+    public float dashingPower = 60f;
+    public float dashDuration = 0.2f;
+    public float dashCooldown = 1f;
+    public bool isKnockedBack;
+    [SerializeField] private float coyoteTime = 0.1f;
     private float coyoteTimeCounter;
 
     [Header("State Machine Information")]
@@ -33,10 +48,15 @@ public class PlayerController : MonoBehaviour
     public State currentState => stateMachine?.CurrentState;
     public BlockManager blockManager;
     public bool pendingHurtStateTransition;
+
+    public Rigidbody2D rb;
+
     
     
     private void Start()
     {
+        isAlive = true;
+        rb = GetComponent<Rigidbody2D>();
         // Initialize state machine
         stateMachine = new StateMachine();
         var states = new List<State>
@@ -48,10 +68,20 @@ public class PlayerController : MonoBehaviour
             new AirAttackState(),
             new DeathState(),
             new HurtState(),
-            new BlockingState()
+            new BlockingState(),
+            new ThrowingState(),
+            new DashState(),
+            new RunState()
         };
 
-        stateMachine.AddGlobalTransition(() => stats.health <= 0 ? stateMachine.GetState<DeathState>() : null);
+        stateMachine.AddGlobalTransition(() => {
+            if (stats.health <= 0)
+            {
+                isAlive = false;
+                return stateMachine.GetState<DeathState>();
+            }
+            return null;
+        });
         stateMachine.AddGlobalTransition(() =>
         {
             if (pendingHurtStateTransition)
@@ -61,15 +91,25 @@ public class PlayerController : MonoBehaviour
             }
             return null;
         });
+        stateMachine.AddGlobalTransition(() =>
+        {
+            if (grounded && throwKeyPressed && currentState.IsActionState == false)
+            {
+                throwKeyPressed = false; // Reset after transitioning
+                return stateMachine.GetState<ThrowingState>();
+            }
+            return null;
+        });
 
-        // Setup states
+
+        
         foreach (var state in states)
         {
             state.Setup(stateMachine, this);
             stateMachine.AddState(state);
         }
 
-        // Initialize with a default state
+       
         stateMachine.Initialize(stateMachine.GetState<IdleState>());
 
         stats.health = stats.healthMAX;
@@ -82,8 +122,6 @@ public class PlayerController : MonoBehaviour
         handleCoyoteTime();
         stateMachine.Execute();
         currentStateName = currentState?.GetType().Name ?? "None";
-
-
         RegeneratePosture();
     }
 
@@ -99,7 +137,7 @@ public class PlayerController : MonoBehaviour
 
     private void RegeneratePosture()
     {
-        // Only regenerate posture if it's below the maximum
+      
         if (stats.Posture < stats.PostureMAX && posturePause == false)
         {
             postureRegenTimer += Time.deltaTime;
@@ -108,33 +146,41 @@ public class PlayerController : MonoBehaviour
             if (postureRegenTimer >= 1f)
             {
                 stats.Posture = Mathf.Min(stats.Posture + postureRegenRate, stats.PostureMAX);
-                postureRegenTimer = 0f; // Reset timer after each second
+                postureRegenTimer = 0f; 
             }
         }
     }
     private void CheckInput()
     {
         xInput = Input.GetAxisRaw("Horizontal");
-        if (Input.GetButtonDown("Jump") && (grounded || coyoteTimeCounter >= 0) && numOfJumps > 0)
+        if (Input.GetButtonDown("Jump") && (grounded || coyoteTimeCounter > 0) && numOfJumps > 0)
         {
             jumpPressed = true;
         }
-        if (currentState.IsActionState == false && Input.GetMouseButtonDown(1))
+        if (currentState.IsActionState == false && Input.GetMouseButtonDown(1) && stats.Posture > 0)
         {
             stateMachine.TransitionTo(stateMachine.GetState<BlockingState>());
         }
     }
 
+
     private void MoveWithInput()
     {
-        if(canMove)
+        if (isDashing)
         {
-                // Horizontal movement
+            return;
+        }
+        if(canMove && isAlive)
+        {
+            if(grounded){
+                currentSpeed = isRunning ? stats.runningSpeed : stats.speed; 
+            }
+            
+
             if (Mathf.Abs(xInput) > 0)
             {
-                float increment = xInput * stats.speed; // Use stats.speed for acceleration
-                float newSpeed = Mathf.Clamp(body.velocity.x + increment, -stats.speed, stats.speed);
-                body.velocity = new Vector2(newSpeed, body.velocity.y);
+                float increment = xInput * currentSpeed;      
+                body.velocity = new Vector2(increment, body.velocity.y);
                 DirectionInput();
             }
 
@@ -145,6 +191,7 @@ public class PlayerController : MonoBehaviour
                 jumpPressed = false;
             }
         }
+        
     }
 
     private void DirectionInput()
@@ -159,16 +206,21 @@ public class PlayerController : MonoBehaviour
 
     private void CheckGround()
     {
+        bool wasGrounded = grounded;
         grounded = Physics2D.OverlapArea(groundCheck.bounds.min, groundCheck.bounds.max, groundLayer);
         if(grounded)
         {
+            if(!wasGrounded)
+            {
+                SFXManager.Instance.PlaySound2D("Landing");
+            }
             resetJump();
         }
     }
 
     private void ApplyFriction()
     {
-        if (grounded && Mathf.Approximately(xInput, 0f))
+        if (grounded && Mathf.Approximately(xInput, 0f) && !isDashing)
         {
             // Apply drag from stats
             body.velocity = new Vector2(body.velocity.x * stats.drag, body.velocity.y);
@@ -186,17 +238,18 @@ public class PlayerController : MonoBehaviour
         }
         else
         {
-            coyoteTimeCounter = coyoteTime; // Reset when grounded
+            coyoteTimeCounter = coyoteTime; 
         }
     }
 
     private void Jump()
     {
-            body.velocity = new Vector2(body.velocity.x, stats.jumpForce); // Use stats.jumpForce
+            SFXManager.Instance.PlaySound2D("Jumping");
+            body.velocity = new Vector2(body.velocity.x, stats.jumpForce); 
     }
     private void resetJump()
     {
-        numOfJumps = 1;
+        numOfJumps = stats.MAXnumOfJumps;
     }
 
 
@@ -209,29 +262,43 @@ public class PlayerController : MonoBehaviour
     {
     AnimatorStateInfo stateInfo = animator.GetCurrentAnimatorStateInfo(0);
 
-    // Check if the current animation matches and if it is complete
+    
     return stateInfo.IsName(animationName) && stateInfo.normalizedTime >= 1.0f;
     }
 
 
-    public void OnAttackReceived(bool canParry, bool canBlock, int HealthDamage, int PostureDamage)
+    public void OnAttackReceived(AttackData attackData)
     {
-        blockManager.HandleAttack(canParry, canBlock, HealthDamage, PostureDamage);
+        if (invulnerable)
+        {
+            return;
+        }
+        blockManager.HandleAttack(attackData);
     }
 
+    public void PausePostureCoroutine()
+    {
+        StartCoroutine(PausePosture(2f));
+    }
+    public IEnumerator PausePosture(float duration)
+    {
+        posturePause = true;
+        yield return new WaitForSeconds(duration);
+        posturePause = false;
+    }
     private void OnDrawGizmos()
 {
-    // Determine the facing direction (-1 for left, 1 for right)
+    
     float facingDirection = transform.localScale.x > 0 ? 1 : -1;
 
-    // Adjust attack area origin based on direction
+    
     Vector2 attackAreaOrigin = (Vector2)transform.position + (Vector2)transform.right * facingDirection * 2 / 2;
     attackAreaOrigin.y += 0.5f;
 
-    // Define attack area size
+    
     Vector2 attackAreaSize = new Vector2(2, 1f);
 
-    // Draw the attack area
+    
     Gizmos.color = Color.red;
     Gizmos.DrawWireCube(attackAreaOrigin, attackAreaSize);
 }
@@ -241,8 +308,23 @@ public class PlayerController : MonoBehaviour
     private void ApplyDamage(){
         if (stateMachine.CurrentState is BasicAttackState attackState)
         {
-            attackState.DetectAndDamageEnemies();  // Now you can call the method
+            attackState.DetectAndDamageEnemies(); 
+        }
+    }
+    public void ApplyKnockback(Vector2 direction, float knockbackForce)
+    {
+        if (!isKnockedBack)
+        {
+            isKnockedBack = true;
+            rb.AddForce(direction * knockbackForce, ForceMode2D.Impulse);
+            StartCoroutine(KnockbackRecovery());
         }
     }
 
+    private IEnumerator KnockbackRecovery()
+    {
+        yield return new WaitForSeconds(0.3f);
+        rb.velocity = Vector2.zero; 
+        isKnockedBack = false;
+    }
 }

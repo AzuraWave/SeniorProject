@@ -5,25 +5,28 @@ using UnityEngine;
 public class AirAttackState : AttackBaseState
 {
     public override bool IsActionState => true;
+    
      public override void Enter()
     {
+        attackData = new AttackData(true, false, 20, 0, 2, 1);
         PlayAnimation("AirAttack");
         unBufferAttack();
         StartAttack();
+        SFXManager.Instance.PlaySound2D("SwordSlash");
     }
 
     public override void Execute()
     {
-        if (Input.GetKeyDown(KeyCode.X)) // Replace KeyCode.X with your attack button
+        if (Input.GetKeyDown(KeyCode.X)) 
         {
-            BufferAttack(); // Buffer the next attack
+            BufferAttack(); 
         }
 
         if (IsAttackComplete())
         {
             if (HasBufferedAttack())
             {
-                Enter(); // Continue the attack with buffered input
+                Enter(); 
             }
             else
             {
@@ -40,6 +43,36 @@ public class AirAttackState : AttackBaseState
         }
         return null;
     
+    }
+
+    public override void DetectAndDamageEnemies(){
+        
+        float facingDirection = player.transform.localScale.x > 0 ? 1 : -1;
+
+        
+        Vector2 attackAreaOrigin = (Vector2)player.transform.position + (Vector2)player.transform.right * facingDirection * attackData.range / 2;
+
+        
+        Vector2 attackAreaSize = new Vector2(attackData.range, attackData.height); 
+
+        
+        Collider2D[] hitEnemies = Physics2D.OverlapBoxAll(attackAreaOrigin, attackAreaSize, 0, player.enemyLayer);
+
+        
+        foreach (var enemyCollider in hitEnemies)
+        {
+            IDamageable damageable = enemyCollider.GetComponent<IDamageable>();
+            if (damageable != null)
+            {
+                Debug.Log("Enemy hit: " + enemyCollider.name);
+                damageable.OnAttackReceived(attackData); 
+            }
+        }
+    }
+
+    public override void Exit()
+    {
+        SFXManager.Instance.StopSound2D();
     }
 
 

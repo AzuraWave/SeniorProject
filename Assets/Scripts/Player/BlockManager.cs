@@ -4,21 +4,24 @@ using UnityEngine;
 public class BlockManager : MonoBehaviour
 {
     private bool isParryEnabled = false;
-    private bool isParryWindowActive = false; // Flag to track the parry window status
+    private bool isParryWindowActive = false; 
     private float parryWindow;
-    private float parryTimer = 0f; // Timer to track parry window duration
-
+    private float parryTimer = 0f; 
     public bool isBlocking = false;
+    
     public PlayerController player;
 
-
+    public bool GetIsParryEnabled()
+    {
+        return isParryEnabled;
+    }   
     private void Start (){
         parryWindow = player.stats.parryWindow;
     }
 
     private void Update()
     {
-        // Check if parry window is active and decrement timer
+        
         if (isParryWindowActive)
         {
             parryTimer -= Time.deltaTime;
@@ -29,7 +32,7 @@ public class BlockManager : MonoBehaviour
         }
 
             AnimatorStateInfo stateInfo = player.animator.GetCurrentAnimatorStateInfo(0);
-            if (stateInfo.IsName("BlockedHit") && stateInfo.normalizedTime >= 1.0f) // Animation has finished
+            if (stateInfo.IsName("BlockedHit") && stateInfo.normalizedTime >= 1.0f) 
             {
                 player.animator.Play("Block");
                 
@@ -40,16 +43,16 @@ public class BlockManager : MonoBehaviour
     public void StartParryWindow()
     {
         isParryEnabled = true;
-        isParryWindowActive = true; // Mark window as active
-        parryTimer = parryWindow;   // Set timer for the parry duration
+        isParryWindowActive = true; 
+        parryTimer = parryWindow;   
 
     }
 
     public void ResetParryWindow()
     {
         isParryEnabled = false;
-        isParryWindowActive = false; // Mark window as inactive
-        parryTimer = 0f;             // Reset timer
+        isParryWindowActive = false; 
+        parryTimer = 0f;             
     }
 
 
@@ -58,28 +61,39 @@ public class BlockManager : MonoBehaviour
         return isParryWindowActive;
     }
 
-    public void HandleAttack(bool canParry, bool canBlock, int healthDamage, int postureDamage)
+
+    public void HandleAttack(AttackData attackData)
     {
-        if (isParryEnabled && canParry)
+        if (isParryEnabled && attackData.canParry)
         {
             Debug.Log("Parried");
+            SFXManager.Instance.PlaySound3D("Parrying", player.transform.position);
             player.animator.Play("BlockedHit");
         }
-        else if (isBlocking && canBlock)
+        else if (isBlocking && attackData.canBlock)
         {
             Debug.Log("Blocked");
             player.animator.Play("BlockedHit");
-            player.stats.TakePostureDamage(postureDamage);
+            SFXManager.Instance.PlaySound3D("Blocking", player.transform.position);
+            player.stats.TakePostureDamage(attackData.postureDamage);
         }
         else
         {
-            player.stats.TakeHealthDamage(healthDamage);
-            player.stats.TakePostureDamage(postureDamage);
-
+            SFXManager.Instance.PlaySound3D("FleshHit", transform.position);
+            player.stats.TakeHealthDamage(attackData.healthDamage);
+            player.stats.TakePostureDamage(attackData.postureDamage);
+            if(attackData.knockbackPower > 0)
+            {
+                player.ApplyKnockback(attackData.knockbackDirection, attackData.knockbackPower);
+            }
             if (player.stats.health > 0)
             {
                 player.pendingHurtStateTransition = true;
             }
+            if (player.stats.Posture < 0){
+                player.PausePostureCoroutine();
+            }
         }  
     }
+    
 }

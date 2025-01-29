@@ -1,16 +1,20 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Threading;
 using UnityEngine;
 
 public class WalkState : State
 {
-
+    private float timer;
     public override void Enter()
     {
         player.animator.Play("Walking");
+        timer = 0f;
+        SFXManager.Instance.PlaySound2D("Walking", true);
     }
     public override void Execute()
     {
+        timer += Time.deltaTime;
         
     }
 
@@ -25,8 +29,8 @@ public class WalkState : State
         {   if (!player.IsMoving)
             {
                 return stateMachine.GetState<IdleState>();
-            } else if (player.IsMoving ){
-                 return stateMachine.GetState<WalkState>();
+            } else if (timer >= 0.5f ){
+                 return stateMachine.GetState<RunState>();
             }
            
         }else 
@@ -39,5 +43,9 @@ public class WalkState : State
     public override void FixedExecute()
     {
  
+    }
+    public override void Exit()
+    {
+        SFXManager.Instance.StopSound2D();
     }
 }

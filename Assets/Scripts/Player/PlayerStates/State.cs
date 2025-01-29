@@ -8,6 +8,7 @@ public abstract class State
     protected PlayerController player;
     protected Enemy enemy;
     public virtual bool IsActionState => false;
+    public virtual bool CanAttackFromState => false;
 
     public virtual void Enter(){}
     public virtual void Execute(){}
@@ -25,4 +26,5 @@ public abstract class State
         this.enemy = enemy;
         this.player = null;
     }
+    
 }

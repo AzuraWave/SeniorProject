@@ -38,7 +38,6 @@ public class Enemy1Stats : ScriptableObject
     private void OnDeath()
     {
         Debug.Log($"{characterName} has died!");
-        // Additional death logic, e.g., triggering an animation or resetting the level.
     }
 
     public void setHealth()

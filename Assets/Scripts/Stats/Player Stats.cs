@@ -12,11 +12,13 @@ public class CharacterStats : ScriptableObject
     public float Posture;
     public int PostureDamage = 20;
     public float speed = 5f;
-    public float acceleration = 1.5f;
+    public float runningSpeed = 8f;
     public float jumpForce = 5f;
-    public float parryWindow = 0.5f;
+    public float parryWindow = 0.2f;
     public float drag = 0.9f;
     public int healCooldown = 5;
+
+    public int MAXnumOfJumps = 3;
 
     public void TakeHealthDamage(int damage)
     {
@@ -38,7 +40,12 @@ public class CharacterStats : ScriptableObject
     private void OnDeath()
     {
         Debug.Log($"{characterName} has died!");
-        // Additional death logic, e.g., triggering an animation or resetting the level.
+    }
+
+    public void increaseHealth(int value){
+
+        health = Mathf.Clamp(health + value, 0, 100);
+
     }
 
 

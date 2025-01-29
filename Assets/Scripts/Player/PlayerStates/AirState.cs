@@ -10,13 +10,12 @@ public override void Enter()
         if (player.jumpPressed)
         {
             player.body.velocity = new Vector2(player.body.velocity.x, player.stats.jumpForce);
-            player.jumpPressed = false; // Reset the jump flag to prevent repeated jumps.
+            player.jumpPressed = false; 
         }
 }
 
     public override void Execute()
     {
-    // Check if at the jump peak (vertical velocity close to zero)
     if (transitionFrame())
     {
         PlayAnimation("in-air-transition");
